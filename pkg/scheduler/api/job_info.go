@@ -66,21 +66,6 @@ const JobWaitingTime = "sla-waiting-time"
 // TaskID is UID type for Task
 type TaskID types.UID
 
-// TransactionContext holds all the fields that needed by scheduling transaction
-type TransactionContext struct {
-	NodeName string
-	Status   TaskStatus
-}
-
-// Clone return a clone of TransactionContext
-func (ctx *TransactionContext) Clone() *TransactionContext {
-	if ctx == nil {
-		return nil
-	}
-	clone := *ctx
-	return &clone
-}
-
 type TopologyInfo struct {
 	Policy string
 	ResMap map[int]v1.ResourceList // key: numa ID
@@ -112,10 +97,8 @@ type TaskInfo struct {
 	// InitResreq is the resource that used to launch a task.
 	InitResreq *Resource
 
-	TransactionContext
-	// LastTransaction holds the context of last scheduling transaction
-	LastTransaction *TransactionContext
-
+	NodeName    string
+	Status      TaskStatus
 	Priority    int32
 	VolumeReady bool
 	Preemptable bool
@@ -168,6 +151,8 @@ func NewTaskInfo(pod *v1.Pod) *TaskInfo {
 		Job:           jobID,
 		Name:          pod.Name,
 		Namespace:     pod.Namespace,
+		NodeName:      pod.Spec.NodeName,
+		Status:        getTaskStatus(pod),
 		Priority:      1,
 		Pod:           pod,
 		Resreq:        resReq,
@@ -176,10 +161,6 @@ func NewTaskInfo(pod *v1.Pod) *TaskInfo {
 		BestEffort:    bestEffort,
 		RevocableZone: revocableZone,
 		NumaInfo:      topologyInfo,
-		TransactionContext: TransactionContext{
-			NodeName: pod.Spec.NodeName,
-			Status:   getTaskStatus(pod),
-		},
 	}
 
 	if pod.Spec.Priority != nil {
@@ -193,22 +174,6 @@ func NewTaskInfo(pod *v1.Pod) *TaskInfo {
 	}
 
 	return ti
-}
-
-// GetTransactionContext get transaction context of a task
-func (ti *TaskInfo) GetTransactionContext() TransactionContext {
-	return ti.TransactionContext
-}
-
-// GenerateLastTxContext generate and set context of last transaction for a task
-func (ti *TaskInfo) GenerateLastTxContext() {
-	ctx := ti.GetTransactionContext()
-	ti.LastTransaction = &ctx
-}
-
-// ClearLastTxContext clear context of last transaction for a task
-func (ti *TaskInfo) ClearLastTxContext() {
-	ti.LastTransaction = nil
 }
 
 func (ti *TaskInfo) SetPodResourceDecision() error {
@@ -241,6 +206,8 @@ func (ti *TaskInfo) Clone() *TaskInfo {
 		Job:           ti.Job,
 		Name:          ti.Name,
 		Namespace:     ti.Namespace,
+		NodeName:      ti.NodeName,
+		Status:        ti.Status,
 		Priority:      ti.Priority,
 		PodVolumes:    ti.PodVolumes,
 		Pod:           ti.Pod,
@@ -251,11 +218,6 @@ func (ti *TaskInfo) Clone() *TaskInfo {
 		BestEffort:    ti.BestEffort,
 		RevocableZone: ti.RevocableZone,
 		NumaInfo:      ti.NumaInfo.Clone(),
-		TransactionContext: TransactionContext{
-			NodeName: ti.NodeName,
-			Status:   ti.Status,
-		},
-		LastTransaction: ti.LastTransaction.Clone(),
 	}
 }
 
@@ -594,7 +556,13 @@ func (ji JobInfo) String() string {
 // FitError returns detailed information on why a job's task failed to fit on
 // each available node
 func (ji *JobInfo) FitError() string {
-	sortReasonsHistogram := func(reasons map[string]int) []string {
+	reasons := make(map[string]int)
+	for status, taskMap := range ji.TaskStatusIndex {
+		reasons[status.String()] += len(taskMap)
+	}
+	reasons["minAvailable"] = int(ji.MinAvailable)
+
+	sortReasonsHistogram := func() []string {
 		reasonStrings := []string{}
 		for k, v := range reasons {
 			reasonStrings = append(reasonStrings, fmt.Sprintf("%v %v", v, k))
@@ -602,60 +570,8 @@ func (ji *JobInfo) FitError() string {
 		sort.Strings(reasonStrings)
 		return reasonStrings
 	}
-
-	// Stat histogram for all tasks of the job
-	reasons := make(map[string]int)
-	for status, taskMap := range ji.TaskStatusIndex {
-		reasons[status.String()] += len(taskMap)
-	}
-	reasons["minAvailable"] = int(ji.MinAvailable)
-	reasonMsg := fmt.Sprintf("%v, %v", scheduling.PodGroupNotReady, strings.Join(sortReasonsHistogram(reasons), ", "))
-
-	// Stat histogram for pending tasks only
-	reasons = make(map[string]int)
-	for uid := range ji.TaskStatusIndex[Pending] {
-		reason, _ := ji.TaskSchedulingReason(uid)
-		reasons[reason]++
-	}
-	if len(reasons) > 0 {
-		reasonMsg += "; " + fmt.Sprintf("%s: %s", Pending.String(), strings.Join(sortReasonsHistogram(reasons), ", "))
-	}
+	reasonMsg := fmt.Sprintf("%v, %v.", scheduling.PodGroupNotReady, strings.Join(sortReasonsHistogram(), ", "))
 	return reasonMsg
-}
-
-// TaskSchedulingReason get detailed reason and message of the given task
-// It returns detailed reason and message for tasks based on last scheduling transaction.
-func (ji *JobInfo) TaskSchedulingReason(tid TaskID) (reason string, msg string) {
-	taskInfo, exists := ji.Tasks[tid]
-	if !exists {
-		return "", ""
-	}
-
-	// Get detailed scheduling reason based on LastTransaction
-	ctx := taskInfo.GetTransactionContext()
-	if taskInfo.LastTransaction != nil {
-		ctx = *taskInfo.LastTransaction
-	}
-
-	msg = ji.JobFitErrors
-	switch status := ctx.Status; status {
-	case Allocated, Pipelined:
-		// Pod is schedulable
-		msg = fmt.Sprintf("Pod %s/%s can possibly be assigned to %s", taskInfo.Namespace, taskInfo.Name, ctx.NodeName)
-		if status == Pipelined {
-			msg += " once resource is released"
-		}
-		return PodReasonSchedulable, msg
-	case Pending:
-		if fe := ji.NodesFitErrors[tid]; fe != nil {
-			// Pod is not schedulable
-			return PodReasonUnschedulable, fe.Error()
-		}
-		// Pod is not scheduled yet
-		return PodReasonUndetermined, msg
-	default:
-		return status.String(), msg
-	}
 }
 
 // ReadyTaskNum returns the number of tasks that are ready or that is best-effort.

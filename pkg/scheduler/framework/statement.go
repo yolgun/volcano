@@ -347,7 +347,6 @@ func (s *Statement) Discard() {
 	klog.V(3).Info("Discarding operations ...")
 	for i := len(s.operations) - 1; i >= 0; i-- {
 		op := s.operations[i]
-		op.task.GenerateLastTxContext()
 		switch op.name {
 		case Evict:
 			err := s.unevict(op.task)
@@ -372,7 +371,6 @@ func (s *Statement) Discard() {
 func (s *Statement) Commit() {
 	klog.V(3).Info("Committing operations ...")
 	for _, op := range s.operations {
-		op.task.ClearLastTxContext()
 		switch op.name {
 		case Evict:
 			err := s.evict(op.task, op.reason)
