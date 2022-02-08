@@ -19,6 +19,7 @@ package preempt
 import (
 	"k8s.io/klog"
 
+	"volcano.sh/apis/pkg/apis/scheduling"
 	"volcano.sh/volcano/pkg/scheduler/api"
 	"volcano.sh/volcano/pkg/scheduler/framework"
 	"volcano.sh/volcano/pkg/scheduler/metrics"
@@ -48,10 +49,9 @@ func (alloc *Action) Execute(ssn *framework.Session) {
 	queues := map[api.QueueID]*api.QueueInfo{}
 
 	for _, job := range ssn.Jobs {
-		if job.IsPending() {
+		if job.PodGroup.Status.Phase == scheduling.PodGroupPending {
 			continue
 		}
-
 		if vr := ssn.JobValid(job); vr != nil && !vr.Pass {
 			klog.V(4).Infof("Job <%s/%s> Queue <%s> skip preemption, reason: %v, message %v", job.Namespace, job.Name, job.Queue, vr.Reason, vr.Message)
 			continue

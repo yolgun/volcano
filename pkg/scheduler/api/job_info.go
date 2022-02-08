@@ -714,12 +714,3 @@ func (ji *JobInfo) Ready() bool {
 
 	return occupied >= ji.MinAvailable
 }
-
-// IsPending returns whether job is in pending status
-func (ji *JobInfo) IsPending() bool {
-	if ji.PodGroup == nil || ji.PodGroup.Status.Phase == scheduling.PodGroupPending || ji.PodGroup.Status.Phase == "" {
-		return true
-	}
-
-	return false
-}
