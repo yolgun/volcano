@@ -74,6 +74,9 @@ func TestAllocate(t *testing.T) {
 					Spec: schedulingv1.PodGroupSpec{
 						Queue: "c1",
 					},
+					Status: schedulingv1.PodGroupStatus{
+						Phase: schedulingv1.PodGroupInqueue,
+					},
 				},
 			},
 			pods: []*v1.Pod{
@@ -109,6 +112,9 @@ func TestAllocate(t *testing.T) {
 					Spec: schedulingv1.PodGroupSpec{
 						Queue: "c1",
 					},
+					Status: schedulingv1.PodGroupStatus{
+						Phase: schedulingv1.PodGroupInqueue,
+					},
 				},
 				{
 					ObjectMeta: metav1.ObjectMeta{
@@ -117,6 +123,9 @@ func TestAllocate(t *testing.T) {
 					},
 					Spec: schedulingv1.PodGroupSpec{
 						Queue: "c2",
+					},
+					Status: schedulingv1.PodGroupStatus{
+						Phase: schedulingv1.PodGroupInqueue,
 					},
 				},
 			},
@@ -170,6 +179,9 @@ func TestAllocate(t *testing.T) {
 					Spec: schedulingv1.PodGroupSpec{
 						Queue: "c1",
 					},
+					Status: schedulingv1.PodGroupStatus{
+						Phase: schedulingv1.PodGroupInqueue,
+					},
 				},
 				{
 					ObjectMeta: metav1.ObjectMeta{
@@ -178,6 +190,9 @@ func TestAllocate(t *testing.T) {
 					},
 					Spec: schedulingv1.PodGroupSpec{
 						Queue: "c2",
+					},
+					Status: schedulingv1.PodGroupStatus{
+						Phase: schedulingv1.PodGroupInqueue,
 					},
 				},
 			},
