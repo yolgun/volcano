@@ -58,6 +58,7 @@ func (alloc *Action) Execute(ssn *framework.Session) {
 	jobsMap := map[api.NamespaceName]map[api.QueueID]*util.PriorityQueue{}
 
 	for _, job := range ssn.Jobs {
+		klog.V(3).Infof("YNS: Print the job at allocate\n %v", job)
 		if job.IsPending() {
 			klog.V(4).Infof("Job <%s/%s> Queue <%s> skip allocate, reason: job status is pending.",
 				job.Namespace, job.Name, job.Queue)

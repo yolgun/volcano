@@ -95,6 +95,7 @@ func (enqueue *Action) Execute(ssn *framework.Session) {
 			ssn.JobEnqueued(job)
 			job.PodGroup.Status.Phase = scheduling.PodGroupInqueue
 			ssn.Jobs[job.UID] = job
+			klog.V(3).Infof("YNS: Print the job at enqueue\n %v", job)
 		}
 
 		// Added Queue back until no job in Queue.
