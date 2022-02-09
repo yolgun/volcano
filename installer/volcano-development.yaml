@@ -7708,7 +7708,7 @@ spec:
             - --scheduler-conf=/volcano.scheduler/volcano-scheduler.conf
             - --enable-healthz=true
             - --enable-metrics=true
-            - -v=3
+            - -v=4
             - 2>&1
           imagePullPolicy: "IfNotPresent"
           volumeMounts:
