@@ -7,7 +7,7 @@ import (
 	quotav1 "k8s.io/apiserver/pkg/quota/v1"
 	"k8s.io/klog"
 
-	scheduling "volcano.sh/apis/pkg/apis/scheduling/v1beta1"
+	"volcano.sh/apis/pkg/apis/scheduling"
 	"volcano.sh/volcano/pkg/scheduler/api"
 	"volcano.sh/volcano/pkg/scheduler/framework"
 	"volcano.sh/volcano/pkg/scheduler/plugins/util"
@@ -34,34 +34,36 @@ func (rq *resourceQuotaPlugin) Name() string {
 }
 
 func (rq *resourceQuotaPlugin) OnSessionOpen(ssn *framework.Session) {
-	pendingResources := make(map[string]v1.ResourceList)
-
 	ssn.AddJobEnqueueableFn(rq.Name(), func(obj interface{}) int {
-		klog.V(4).Infof("XXX: resourcequota enqueue")
 		job := obj.(*api.JobInfo)
 
 		resourcesRequests := job.PodGroup.Spec.MinResources
-
 		if resourcesRequests == nil {
 			return util.Permit
 		}
 
 		quotas := ssn.NamespaceInfo[api.NamespaceName(job.Namespace)].QuotaStatus
-		klog.V(4).Infof("XXX: quotas: %#v", quotas)
 		for _, resourceQuota := range quotas {
-			klog.V(4).Infof("XXX: resourceQuota: %v", resourceQuota)
 			hardResources := quotav1.ResourceNames(resourceQuota.Hard)
-			requestedUsage := quotav1.Mask(*resourcesRequests, hardResources)
 
-			var resourcesUsed = resourceQuota.Used
-			if pendingUse, found := pendingResources[job.Namespace]; found {
-				resourcesUsed = quotav1.Add(pendingUse, resourcesUsed)
+			used := v1.ResourceList{}
+			for _, j := range ssn.Jobs {
+				rr := j.PodGroup.Spec.MinResources
+				if j.Namespace != job.Namespace || rr == nil {
+					continue
+				}
+
+				switch j.PodGroup.Status.Phase {
+				case scheduling.PodGroupRunning, scheduling.PodGroupInqueue:
+					ru := quotav1.Mask(*rr, hardResources)
+					used = quotav1.Add(used, ru)
+				}
 			}
-			klog.V(4).Infof("XXX: resourcesUsed: %#v", resourcesUsed)
-			newUsage := quotav1.Add(resourcesUsed, requestedUsage)
+
+			requestedUsage := quotav1.Mask(*resourcesRequests, hardResources)
+			newUsage := quotav1.Add(used, requestedUsage)
 			maskedNewUsage := quotav1.Mask(newUsage, quotav1.ResourceNames(requestedUsage))
 
-			klog.V(4).Infof("XXX: masked resources: %#v %#v", newUsage, maskedNewUsage)
 			if allowed, exceeded := quotav1.LessThanOrEqual(maskedNewUsage, resourceQuota.Hard); !allowed {
 				failedRequestedUsage := quotav1.Mask(requestedUsage, exceeded)
 				failedUsed := quotav1.Mask(resourceQuota.Used, exceeded)
@@ -72,15 +74,16 @@ func (rq *resourceQuotaPlugin) OnSessionOpen(ssn *framework.Session) {
 					failedHard,
 				)
 				klog.V(4).Infof("enqueueable false for job: %s/%s, because :%s", job.Namespace, job.Name, msg)
-				ssn.RecordPodGroupEvent(job.PodGroup, v1.EventTypeWarning, string(scheduling.PodGroupUnschedulableType), msg)
+				ssn.RecordPodGroupEvent(
+					job.PodGroup,
+					v1.EventTypeWarning,
+					string(scheduling.PodGroupUnschedulableType),
+					msg,
+				)
 				return util.Reject
 			}
 		}
-		if _, found := pendingResources[job.Namespace]; !found {
-			pendingResources[job.Namespace] = v1.ResourceList{}
-		}
-		pendingResources[job.Namespace] = quotav1.Add(pendingResources[job.Namespace], *resourcesRequests)
-		klog.V(4).Infof("XXX: resourcequota enqueue finish")
+
 		return util.Permit
 	})
 }
