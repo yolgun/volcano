@@ -23,12 +23,17 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/uuid"
+	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/klog"
-	volumescheduling "k8s.io/kubernetes/pkg/controller/volume/scheduling"
+	volumescheduling "k8s.io/kubernetes/pkg/scheduler/framework/plugins/volumebinding"
 
 	"volcano.sh/apis/pkg/apis/scheduling"
+	schedulingscheme "volcano.sh/apis/pkg/apis/scheduling/scheme"
+	vcv1beta1 "volcano.sh/apis/pkg/apis/scheduling/v1beta1"
 	"volcano.sh/volcano/pkg/scheduler/api"
+	schedulingapi "volcano.sh/volcano/pkg/scheduler/api"
 	"volcano.sh/volcano/pkg/scheduler/cache"
 	"volcano.sh/volcano/pkg/scheduler/conf"
 	"volcano.sh/volcano/pkg/scheduler/metrics"
@@ -38,8 +43,12 @@ import (
 type Session struct {
 	UID types.UID
 
-	kubeClient kubernetes.Interface
-	cache      cache.Cache
+	kubeClient      kubernetes.Interface
+	recorder        record.EventRecorder
+	cache           cache.Cache
+	informerFactory informers.SharedInformerFactory
+
+	TotalResource *api.Resource
 	// podGroupStatus cache podgroup status during schedule
 	// This should not be mutated after initiated
 	podGroupStatus map[api.JobID]scheduling.PodGroupStatus
@@ -80,9 +89,11 @@ type Session struct {
 
 func openSession(cache cache.Cache) *Session {
 	ssn := &Session{
-		UID:        uuid.NewUUID(),
-		kubeClient: cache.Client(),
-		cache:      cache,
+		UID:             uuid.NewUUID(),
+		kubeClient:      cache.Client(),
+		recorder:        cache.EventRecorder(),
+		cache:           cache,
+		informerFactory: cache.SharedInformerFactory(),
 
 		podGroupStatus: map[api.JobID]scheduling.PodGroupStatus{},
 
@@ -426,6 +437,25 @@ func (ssn *Session) AddEventHandler(eh *EventHandler) {
 // KubeClient returns the kubernetes client
 func (ssn Session) KubeClient() kubernetes.Interface {
 	return ssn.kubeClient
+}
+
+// InformerFactory returns the scheduler ShareInformerFactory
+func (ssn Session) InformerFactory() informers.SharedInformerFactory {
+	return ssn.informerFactory
+}
+
+// RecordPodGroupEvent records podGroup events
+func (ssn Session) RecordPodGroupEvent(podGroup *schedulingapi.PodGroup, eventType, reason, msg string) {
+	if podGroup == nil {
+		return
+	}
+
+	pg := &vcv1beta1.PodGroup{}
+	if err := schedulingscheme.Scheme.Convert(&podGroup.PodGroup, pg, nil); err != nil {
+		klog.Errorf("Error while converting PodGroup to v1alpha1.PodGroup with error: %v", err)
+		return
+	}
+	ssn.recorder.Eventf(pg, eventType, reason, msg)
 }
 
 //String return nodes and jobs information in the session
