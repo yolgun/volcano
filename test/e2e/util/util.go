@@ -30,7 +30,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
-	schedv1 "k8s.io/api/scheduling/v1beta1"
+	schedv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -212,7 +212,7 @@ func CleanupTestContext(ctx *TestContext) {
 
 func createPriorityClasses(cxt *TestContext) {
 	for name, value := range cxt.PriorityClasses {
-		_, err := cxt.Kubeclient.SchedulingV1beta1().PriorityClasses().Create(context.TODO(),
+		_, err := cxt.Kubeclient.SchedulingV1().PriorityClasses().Create(context.TODO(),
 			&schedv1.PriorityClass{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: name,
@@ -227,7 +227,7 @@ func createPriorityClasses(cxt *TestContext) {
 
 func deletePriorityClasses(cxt *TestContext) {
 	for name := range cxt.PriorityClasses {
-		err := cxt.Kubeclient.SchedulingV1beta1().PriorityClasses().Delete(context.TODO(), name, metav1.DeleteOptions{})
+		err := cxt.Kubeclient.SchedulingV1().PriorityClasses().Delete(context.TODO(), name, metav1.DeleteOptions{})
 		Expect(err).NotTo(HaveOccurred())
 	}
 }
