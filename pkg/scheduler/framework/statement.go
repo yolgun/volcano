@@ -226,7 +226,7 @@ func (s *Statement) unpipeline(task *api.TaskInfo) error {
 }
 
 // Allocate the task to node
-func (s *Statement) Allocate(task *api.TaskInfo, nodeInfo *api.NodeInfo) error {
+func (s *Statement) Allocate(task *api.TaskInfo, nodeInfo *api.NodeInfo) (err error) {
 	podVolumes, err := s.ssn.cache.GetPodVolumes(task, nodeInfo.Node)
 	if err != nil {
 		return err
@@ -236,6 +236,11 @@ func (s *Statement) Allocate(task *api.TaskInfo, nodeInfo *api.NodeInfo) error {
 	if err := s.ssn.cache.AllocateVolumes(task, hostname, podVolumes); err != nil {
 		return err
 	}
+	defer func() {
+		if err != nil {
+			s.ssn.cache.RevertVolumes(task, podVolumes)
+		}
+	}()
 
 	task.Pod.Spec.NodeName = hostname
 	task.PodVolumes = podVolumes
@@ -289,15 +294,10 @@ func (s *Statement) Allocate(task *api.TaskInfo, nodeInfo *api.NodeInfo) error {
 }
 
 func (s *Statement) allocate(task *api.TaskInfo) error {
-	if err := s.ssn.cache.BindVolumes(task, task.PodVolumes); err != nil {
+	if err := s.ssn.cache.AddBindTask(task); err != nil {
 		return err
 	}
 
-	if err := s.ssn.cache.Bind(task, task.NodeName); err != nil {
-		return err
-	}
-
-	// Update status in session
 	if job, found := s.ssn.Jobs[task.Job]; found {
 		if err := job.UpdateTaskStatus(task, api.Binding); err != nil {
 			klog.Errorf("Failed to update task <%v/%v> status to %v in Session <%v>: %v",
@@ -316,6 +316,8 @@ func (s *Statement) allocate(task *api.TaskInfo) error {
 
 // unallocate the pod for task
 func (s *Statement) unallocate(task *api.TaskInfo) error {
+	s.ssn.cache.RevertVolumes(task, task.PodVolumes)
+
 	// Update status in session
 	job, found := s.ssn.Jobs[task.Job]
 	if found {
@@ -388,6 +390,7 @@ func (s *Statement) Commit() {
 		case Allocate:
 			err := s.allocate(op.task)
 			if err != nil {
+				s.ssn.cache.RevertVolumes(op.task, op.task.PodVolumes)
 				klog.Errorf("Failed to allocate task: for %s", err.Error())
 			}
 		}
