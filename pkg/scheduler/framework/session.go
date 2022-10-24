@@ -27,6 +27,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog"
+	volumescheduling "k8s.io/kubernetes/pkg/scheduler/framework/plugins/volumebinding"
+
 	"volcano.sh/apis/pkg/apis/scheduling"
 	schedulingscheme "volcano.sh/apis/pkg/apis/scheduling/scheme"
 	vcv1beta1 "volcano.sh/apis/pkg/apis/scheduling/v1beta1"
@@ -270,7 +272,7 @@ func (ssn *Session) Pipeline(task *api.TaskInfo, hostname string) error {
 }
 
 //Allocate the task to the node in the session
-func (ssn *Session) Allocate(task *api.TaskInfo, nodeInfo *api.NodeInfo) (err error) {
+func (ssn *Session) Allocate(task *api.TaskInfo, nodeInfo *api.NodeInfo) error {
 	podVolumes, err := ssn.cache.GetPodVolumes(task, nodeInfo.Node)
 	if err != nil {
 		return err
@@ -280,11 +282,6 @@ func (ssn *Session) Allocate(task *api.TaskInfo, nodeInfo *api.NodeInfo) (err er
 	if err := ssn.cache.AllocateVolumes(task, hostname, podVolumes); err != nil {
 		return err
 	}
-	defer func() {
-		if err != nil {
-			ssn.cache.RevertVolumes(task, podVolumes)
-		}
-	}()
 
 	task.Pod.Spec.NodeName = hostname
 	task.PodVolumes = podVolumes
@@ -330,21 +327,23 @@ func (ssn *Session) Allocate(task *api.TaskInfo, nodeInfo *api.NodeInfo) (err er
 
 	if ssn.JobReady(job) {
 		for _, task := range job.TaskStatusIndex[api.Allocated] {
-			if err := ssn.dispatch(task); err != nil {
+			if err := ssn.dispatch(task, podVolumes); err != nil {
 				klog.Errorf("Failed to dispatch task <%v/%v>: %v",
 					task.Namespace, task.Name, err)
 				return err
 			}
 		}
-	} else {
-		ssn.cache.RevertVolumes(task, podVolumes)
 	}
 
 	return nil
 }
 
-func (ssn *Session) dispatch(task *api.TaskInfo) error {
-	if err := ssn.cache.AddBindTask(task); err != nil {
+func (ssn *Session) dispatch(task *api.TaskInfo, volumes *volumescheduling.PodVolumes) error {
+	if err := ssn.cache.BindVolumes(task, volumes); err != nil {
+		return err
+	}
+
+	if err := ssn.cache.Bind(task, task.NodeName); err != nil {
 		return err
 	}
 
