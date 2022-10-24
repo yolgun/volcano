@@ -3,10 +3,7 @@ package drf
 import (
 	"flag"
 	"fmt"
-	"reflect"
 	"testing"
-
-	"github.com/agiledragon/gomonkey/v2"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -51,13 +48,6 @@ func TestHDRF(t *testing.T) {
 	klog.InitFlags(nil)
 	flag.Set("v", "4")
 	flag.Set("alsologtostderr", "true")
-	var tmp *cache.SchedulerCache
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(tmp), "AddBindTask", func(scCache *cache.SchedulerCache, task *api.TaskInfo) error {
-		scCache.Binder.Bind(nil, []*api.TaskInfo{task})
-		return nil
-	})
-	defer patches.Reset()
-
 	s := options.NewServerOption()
 	s.MinNodesToFind = 100
 	s.PercentageOfNodesToFind = 100
